@@ -1,0 +1,47 @@
+title: Lateral Movement — NTLM Network Logon
+id: b1c2d3e4-0006-4f6a-9b8c-000000000006
+status: experimental
+description: >
+  Detects NTLM network logons (Event 4624, LogonType 3) which are the primary
+  indicator of Pass-the-Hash lateral movement. In a Kerberos domain, most
+  network authentication should use Kerberos. NTLM network logons from unexpected
+  sources — especially workstations authenticating to other workstations or to
+  the DC — are a lateral movement indicator.
+  Apply as a threshold rule: 5 or more NTLM network logons from the same source
+  IP within 5 minutes.
+references:
+  - https://attack.mitre.org/techniques/T1550/002/
+  - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4624
+author: John Medina
+date: 2026/05/08
+tags:
+  - attack.lateral_movement
+  - attack.t1550.002
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4624
+    LogonType: 3
+    AuthenticationPackageName: 'NTLM'
+  filter_anonymous:
+    SubjectUserName: 'ANONYMOUS LOGON'
+  filter_no_workstation:
+    WorkstationName: '-'
+  condition: selection and not filter_anonymous and not filter_no_workstation
+  # Recommended SIEM threshold:
+  # 5 or more events from the same IpAddress within 5 minutes.
+  # Apply as a threshold rule in Kibana Security.
+falsepositives:
+  - Legacy applications using NTLM because Kerberos is unavailable (IP-based access, non-domain systems)
+  - Print servers, NAS devices, and storage appliances without Kerberos support
+  - Monitoring tools that authenticate via NTLM
+fields:
+  - SubjectUserName
+  - TargetUserName
+  - LogonType
+  - AuthenticationPackageName
+  - IpAddress
+  - WorkstationName
+level: medium

@@ -1,0 +1,74 @@
+# =============================================================================
+# winlogbeat-dc.yml
+# active-directory-attack-defense — WIN-DC01 Winlogbeat configuration
+# =============================================================================
+# Host: WIN-DC01 (192.168.10.160)
+# Ships to: Logstash at ELK-SIEM (192.168.10.100:5044)
+#
+# Critical: This config must be deployed on the DOMAIN CONTROLLER to capture
+# DC-side authentication events: 4769 (Kerberoasting), 4768 (AS-REP),
+# 4662 (DCSync / Directory Access), 4724, 4740.
+# Without Winlogbeat on the DC, these events will never reach the SIEM.
+# =============================================================================
+
+winlogbeat.event_logs:
+
+  # Windows Security Event Log — required for all AD authentication events
+  - name: Security
+    event_id:
+      # Authentication and logon
+      - 4624   # Successful logon
+      - 4625   # Failed logon
+      - 4634   # Logoff
+      - 4648   # Logon with explicit credentials
+      - 4672   # Special privileges assigned (privileged logon)
+      # Kerberos
+      - 4768   # Kerberos AS request (TGT) — AS-REP Roasting signal
+      - 4769   # Kerberos TGS request — Kerberoasting signal (RC4 etype 0x17)
+      - 4770   # Kerberos TGS renewal
+      - 4771   # Kerberos pre-authentication failed
+      # Directory service
+      - 4662   # Operation performed on AD object — DCSync signal
+      - 4663   # Object access attempt
+      # Account management
+      - 4720   # User account created
+      - 4722   # User account enabled
+      - 4723   # Password change attempt
+      - 4724   # Password reset attempt
+      - 4725   # Account disabled
+      - 4726   # Account deleted
+      - 4728   # User added to security-enabled global group
+      - 4732   # User added to security-enabled local group
+      - 4756   # User added to security-enabled universal group
+      - 4740   # Account locked out
+      # Policy
+      - 4713   # Kerberos policy changed
+      - 4719   # System audit policy changed
+
+  # System Event Log — for service events
+  - name: System
+    event_id:
+      - 7045   # New service installed
+
+  # PowerShell Script Block Logging
+  - name: Microsoft-Windows-PowerShell/Operational
+    event_id:
+      - 4104   # Script block logging
+
+output.logstash:
+  hosts: ["192.168.10.100:5044"]
+
+# Logging
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: C:\ProgramData\winlogbeat\Logs
+  name: winlogbeat
+  keepfiles: 7
+
+# Fields for tagging DC events in ELK
+fields:
+  lab: active-directory-attack-defense
+  host_role: domain-controller
+  domain: soc.local
+fields_under_root: true

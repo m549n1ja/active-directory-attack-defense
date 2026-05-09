@@ -1,0 +1,45 @@
+title: LSASS Process Access — Credential Dumping Attempt
+id: b1c2d3e4-0005-4f6a-9b8c-000000000005
+status: experimental
+description: >
+  Detects attempts to access lsass.exe process memory for credential extraction
+  using Sysmon Event 10 (ProcessAccess). Fires on the access attempt regardless
+  of whether the dump succeeds — PPL-blocked attempts are still captured.
+  Filters out known-legitimate Windows processes that routinely access LSASS.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon
+author: John Medina
+date: 2026/05/08
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  product: windows
+  service: sysmon
+detection:
+  selection:
+    EventID: 10
+    TargetImage|endswith: '\lsass.exe'
+  filter_system:
+    SourceImage|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  filter_program_files:
+    SourceImage|startswith: 'C:\Program Files\'
+  filter_low_privilege_access:
+    GrantedAccess:
+      - '0x1000'
+      - '0x1400'
+  condition: selection and not filter_system and not filter_program_files and not filter_low_privilege_access
+falsepositives:
+  - Antivirus and EDR products that access LSASS for behavioral monitoring
+  - Windows Error Reporting (WerFault.exe) — excluded by System32 filter
+  - Sysinternals Process Monitor / Process Explorer
+  - Some backup agents
+fields:
+  - SourceImage
+  - TargetImage
+  - GrantedAccess
+  - CallTrace
+level: high

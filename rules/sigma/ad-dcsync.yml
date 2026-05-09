@@ -1,0 +1,40 @@
+title: DCSync — Directory Replication by Non-Domain Controller
+id: b1c2d3e4-0003-4f6a-9b8c-000000000003
+status: experimental
+description: >
+  Detects DCSync attacks by identifying Event 4662 (Directory Service Access)
+  with DS-Replication-Get-Changes-All rights exercised by a non-machine account.
+  DCSync mimics legitimate DC replication to extract NTLM hashes for any domain
+  account including KRBTGT. Requires Directory Service Access auditing enabled.
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+  - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4662
+author: John Medina
+date: 2026/05/08
+tags:
+  - attack.credential_access
+  - attack.t1003.006
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4662
+    AccessMask: '0x100'
+    Properties|contains:
+      - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+      - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+      - '89e95b76-444d-4c62-991a-0facbeda640c'
+  filter_machine_accounts:
+    SubjectUserName|endswith: '$'
+  condition: selection and not filter_machine_accounts
+falsepositives:
+  - Azure AD Connect and other directory synchronization tools that hold replication rights
+  - Microsoft Defender for Identity sensor activity
+  - Legitimate backup software with replication permissions
+fields:
+  - SubjectUserName
+  - AccessMask
+  - Properties
+  - ObjectType
+level: critical

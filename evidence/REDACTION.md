@@ -1,2 +1,1 @@
-# Redaction Guidelines
-
+Credentials redacted. Lab IPs retained.

@@ -1,0 +1,36 @@
+title: AS-REP Roasting — Pre-Authentication Disabled
+id: b1c2d3e4-0002-4f6a-9b8c-000000000002
+status: experimental
+description: >
+  Detects AS-REP Roasting by identifying Kerberos AS requests with no
+  pre-authentication (PreAuthType 0). When an account has DoesNotRequirePreAuth
+  set to True, an attacker can request an AS-REP without knowing the account
+  password, then crack the encrypted blob offline.
+references:
+  - https://attack.mitre.org/techniques/T1558/004/
+  - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4768
+author: John Medina
+date: 2026/05/08
+tags:
+  - attack.credential_access
+  - attack.t1558.004
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4768
+    PreAuthType: '0'
+    Status: '0x0'
+  filter_machine_accounts:
+    TargetUserName|endswith: '$'
+  condition: selection and not filter_machine_accounts
+falsepositives:
+  - Legacy clients or applications that do not send Kerberos pre-authentication
+  - Service accounts deliberately configured without pre-auth for legacy compatibility
+fields:
+  - TargetUserName
+  - PreAuthType
+  - Status
+  - IpAddress
+level: high

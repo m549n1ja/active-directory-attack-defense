@@ -1,0 +1,68 @@
+# =============================================================================
+# winlogbeat-client.yml
+# active-directory-attack-defense — WIN10-ADCLIENT Winlogbeat configuration
+# =============================================================================
+# Host: WIN10-ADCLIENT (192.168.10.161)
+# Ships to: Logstash at ELK-SIEM (192.168.10.100:5044)
+#
+# This config captures both Windows Security events and Sysmon telemetry
+# from the domain workstation. Sysmon provides process, network, and
+# file activity that Windows Security events alone do not cover.
+# =============================================================================
+
+winlogbeat.event_logs:
+
+  # Windows Security Event Log
+  - name: Security
+    event_id:
+      - 4624   # Successful logon
+      - 4625   # Failed logon
+      - 4634   # Logoff
+      - 4648   # Logon with explicit credentials
+      - 4672   # Special privileges assigned
+      - 4688   # Process creation (if enabled via audit policy)
+      - 4698   # Scheduled task created
+      - 4720   # User account created
+      - 4740   # Account locked out
+
+  # Sysmon — comprehensive endpoint telemetry
+  # Requires Sysmon64 installed with SwiftOnSecurity config
+  - name: Microsoft-Windows-Sysmon/Operational
+    # All Sysmon event IDs captured:
+    # Event 1  — Process creation
+    # Event 3  — Network connection
+    # Event 7  — Image loaded
+    # Event 8  — CreateRemoteThread
+    # Event 10 — ProcessAccess (LSASS dump detection)
+    # Event 11 — FileCreate
+    # Event 12/13/14 — Registry events
+    # Event 15 — FileCreateStreamHash
+    # Event 22 — DNSEvent
+
+  # PowerShell Script Block Logging
+  - name: Microsoft-Windows-PowerShell/Operational
+    event_id:
+      - 4104   # Script block logging
+
+  # System Event Log
+  - name: System
+    event_id:
+      - 7045   # New service installed
+
+output.logstash:
+  hosts: ["192.168.10.100:5044"]
+
+# Logging
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: C:\ProgramData\winlogbeat\Logs
+  name: winlogbeat
+  keepfiles: 7
+
+# Fields for tagging client events in ELK
+fields:
+  lab: active-directory-attack-defense
+  host_role: domain-workstation
+  domain: soc.local
+fields_under_root: true
