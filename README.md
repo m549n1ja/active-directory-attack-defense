@@ -1,37 +1,34 @@
 # Active Directory Attack & Defense Lab
 
-## Adversary Emulation, Detection Engineering, and Hardening Against the Full AD Attack Chain
+## Adversary Emulation, Detection Engineering, and Hardening Against the Canonical Active Directory Attack Chain
 
-I built this lab because credential-based attacks against Active Directory are the most common entry path in enterprise breaches — and I wanted to understand them from both sides. Not just run a tool and capture a hash, but understand why the technique works, what telemetry it produces, how to write a detection that fires on the right signal, and how to harden the environment so the attack surface shrinks measurably.
+Credential-based attacks targeting Active Directory represent the most prevalent initial access and privilege escalation vector in enterprise breach cases. This project examines that threat from both the offensive and defensive perspective: constructing a realistic Windows Server 2022 domain, executing the documented AD attack chain using purpose-built adversary emulation tools, engineering detection logic against the resulting telemetry, and applying targeted hardening controls to reduce the domain's attack surface.
 
-This repository is the result: a self-built Windows Server 2022 Active Directory domain attacked with the canonical credential attack chain — BloodHound reconnaissance, Kerberoasting, AS-REP Roasting, LSASS dumping (blocked by PPL), and DCSync — with every technique detected in a live ELK SIEM, six custom KQL detection rules mapped to MITRE ATT&CK, and a complete hardening phase that demonstrably reduced the attack surface. Everything runs on commodity hardware using VMware Workstation.
-
----
-
-## Project Goals
-
-1. Can I build a realistic Active Directory environment from scratch, including intentionally vulnerable service accounts?
-2. Can I execute the canonical credential attack chain using real tools (Impacket, BloodHound/SharpHound) from a Kali attacker VM?
-3. Can I detect every technique in a live SIEM using event-driven KQL rules mapped to MITRE ATT&CK?
-4. Can I harden the environment against the exact weaknesses I exploited and show a measurable reduction in attack surface using BloodHound before/after comparison?
-5. Can I document the full kill chain — attack, detection, response, and hardening — at a level suitable for a SOC or DFIR portfolio?
+The environment consists of a self-built soc.local domain controller (WIN-DC01), a domain-joined Windows 10 endpoint (WIN10-ADCLIENT), a Kali Linux attack platform, and an existing ELK 8.x SIEM. The attack chain encompasses BloodHound reconnaissance, Kerberoasting, AS-REP Roasting, LSASS credential dumping (blocked by Protected Process Light), and DCSync. Each technique produced measurable telemetry — 237 Event 4769 records, 98 Event 4768 records, and 103 Event 4662 records — that informed the construction of six custom KQL detection rules, each mapped to a specific MITRE ATT&CK sub-technique. A subsequent hardening phase applied five domain-level controls directly correlated to the exploited weaknesses and generated a BloodHound before-and-after comparison to quantify attack surface reduction.
 
 ---
 
-## Skills Demonstrated
+## Scope and Purpose
 
-| Skill Area | How This Lab Demonstrates It |
+The objectives governing this project were as follows: to build and configure an Active Directory domain from bare hardware without reliance on pre-built templates or cloud-hosted infrastructure; to execute each technique in the attack chain using the same tooling documented in adversary emulation methodology literature; to develop detection logic grounded in the specific event signatures produced by each technique rather than generic behavioral heuristics; and to apply hardening controls that directly address the misconfigurations exploited, with documented validation of each control.
+
+The project is not intended to represent a fully hardened production deployment. Several configurations present in the environment — RC4-enabled Kerberos encryption, disabled pre-authentication, and weak foothold account credentials — were introduced deliberately to provide conditions under which the targeted techniques would succeed. Those misconfigurations are catalogued in [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md) alongside the controls applied to remediate them.
+
+---
+
+## Competencies Addressed
+
+| Domain | Evidence in This Project |
 |---|---|
-| Active Directory administration | Built soc.local domain from scratch on Windows Server 2022; created users, groups, service accounts, and intentional misconfigurations |
-| Adversary emulation | Executed BloodHound recon, Kerberoasting, AS-REP Roasting, LSASS dump attempt, and DCSync using Impacket and SharpHound |
-| MITRE ATT&CK mapping | Mapped each attack technique to a specific sub-technique (T1087.002, T1558.003, T1558.004, T1003.001, T1003.006) |
-| SIEM detection engineering | Wrote 6 custom KQL detection rules in Elastic Security, each validated against real attack telemetry |
-| Alert tuning | Identified and documented false positive behavior in Event 4672 broad rule; produced tuning recommendation |
-| Telemetry pipeline validation | Discovered and resolved a critical Winlogbeat gap on WIN-DC01 that was causing Event 4769 to be invisible in ELK |
-| Endpoint protection validation | LSASS dump blocked by Defender PPL — documented as a defensive control validation, not a failure |
-| AD hardening | Applied Protected Users group, AES-only Kerberos, PreAuth enforcement, strong password policy, and DS auditing |
-| Attack surface reduction | Before/after BloodHound comparison showing measurable reduction in attack paths post-hardening |
-| Documentation | Full deployment guide, architecture, evidence index, detection rule documentation, and incident report |
+| Active Directory administration | soc.local domain built from installation; users, groups, service accounts, and intentional misconfigurations configured via PowerShell |
+| Adversary emulation | BloodHound, SharpHound, Impacket GetUserSPNs, Impacket GetNPUsers, and Impacket secretsdump executed in sequence against the live domain |
+| MITRE ATT&CK mapping | Each technique mapped to a specific sub-technique: T1087.002, T1558.003, T1558.004, T1003.001, T1003.006 |
+| Detection engineering | Six custom Elastic Security KQL rules authored and validated against live attack telemetry |
+| False positive analysis | Event 4672 over-alerting on the domain controller identified and documented with a tuning recommendation |
+| Telemetry pipeline validation | Winlogbeat absence on WIN-DC01 identified as a blind spot causing Event 4769 to be absent from ELK; corrected and validated |
+| Endpoint protection validation | LSASS credential dump blocked by Defender PPL; Sysmon Event 10 captured the access attempt independently of the dump outcome |
+| Active Directory hardening | Protected Users group, AES-only Kerberos enforcement, PreAuth re-enablement, password policy strengthening, and Directory Service auditing applied |
+| Attack surface reduction | Post-hardening SharpHound collection and BloodHound graph comparison document reduced attack paths to Domain Admin |
 
 ---
 
@@ -42,6 +39,7 @@ This repository is the result: a self-built Windows Server 2022 Active Directory
                    ┌──────────────────────────────┐
                    │                              │
    Internet ──── OPNsense (192.168.10.1)          │
+                   │   Chromebox CN60             │
                    │                              │
       ┌────────────┼──────────────┬───────────────┤
       │            │              │               │
@@ -49,154 +47,122 @@ This repository is the result: a self-built Windows Server 2022 Active Directory
  WIN-DC01      WIN10-ADCLIENT  Kali-Attacker   ELK-SIEM
  192.168.10.160 192.168.10.161 192.168.10.20  192.168.10.100
  WinSrv 2022   Windows 10 Pro  Kali Linux     Ubuntu 24.04
- soc.local DC  domain joined   BloodHound CE  Elasticsearch
- Winlogbeat──► Sysmon          Impacket       Logstash:5044
-               Winlogbeat ───► Hashcat        Kibana:5601
-                               SharpHound
+ soc.local DC  Domain joined   BloodHound CE  Elasticsearch
+ Winlogbeat    Sysmon64        Impacket       Logstash:5044
+               Winlogbeat ────────────────►  Kibana:5601
                    │                              │
                    └──────────────────────────────┘
-                   Ryzen 9 Host: 192.168.10.10
-                   VMware Workstation | 64GB RAM
+              Ryzen 9 Desktop | 192.168.10.10
+              VMware Workstation | 64 GB RAM
 ```
 
 ---
 
 ## Technology Stack
 
-| Component | Version | Purpose |
+| Component | Version | Role |
 |---|---:|---|
 | Windows Server 2022 | — | Domain Controller (WIN-DC01) |
-| Windows 10 Pro | — | AD client endpoint (WIN10-ADCLIENT) |
-| Kali Linux | Current | Attacker VM — adversary emulation |
-| Sysmon64 | Current at install time | Windows process and network telemetry |
-| Winlogbeat | 8.19.13 | Ships Windows Security and Sysmon events to ELK |
-| Elasticsearch | 8.x | Stores and indexes security events |
-| Kibana | 8.x | SIEM dashboards, detection rules, and alerts |
-| BloodHound CE | v9.0.0-rc4 | AD graph analysis and attack path mapping |
-| SharpHound | Current at install time | AD data collection for BloodHound |
-| Impacket | Current | Kerberoasting, AS-REP Roasting, DCSync |
+| Windows 10 Pro | — | Domain workstation (WIN10-ADCLIENT) |
+| Kali Linux | Current | Adversary emulation platform |
+| Sysmon64 | Current at install | Endpoint process and network telemetry |
+| Winlogbeat | 8.19.13 | Windows Security and Sysmon event forwarding |
+| Elasticsearch | 8.x | Event indexing and storage |
+| Kibana | 8.x | SIEM detection rules and alert management |
+| BloodHound CE | v9.0.0-rc4 | AD attack path analysis and graph visualization |
+| SharpHound | Current at install | AD data collection for BloodHound |
+| Impacket | Current | Kerberoasting, AS-REP Roasting, DCSync execution |
 | Hashcat | Current | Offline hash cracking simulation |
-| VMware Workstation | — | Local virtualization platform |
 
 ---
 
-## Active Directory Structure
+## Domain Structure
 
-| Account | Type | Purpose |
+| Account | Classification | Notes |
 |---|---|---|
-| d.reyes, m.santos, e.miller, l.kim | Standard user | Normal domain users |
-| a.brooks, p.nair, m.lee, s.alvarez | Standard user | Normal domain users |
-| h.temp | Weak foothold | Password123! — initial access vector |
-| o.intern | Weak foothold | Welcome1! — initial access vector |
-| r.hayes | Domain Admin | Primary privileged target |
-| o.grant | IT Admin | Secondary admin |
-| svc-sql-report | Service account | Kerberoast target — SPN: MSSQLSvc/win-dc01.soc.local:1433 |
-| svc-backup-ops | Service account | AS-REP Roast target — PreAuth initially disabled |
+| d.reyes, m.santos, e.miller, l.kim | Standard user | Unprivileged domain accounts |
+| a.brooks, p.nair, m.lee, s.alvarez | Standard user | Unprivileged domain accounts |
+| h.temp | Weak foothold | Weak credential — initial access vector for attack chain |
+| o.intern | Weak foothold | Weak credential — initial access vector for attack chain |
+| r.hayes | Domain Admin | Primary privileged target; Protected Users member post-hardening |
+| o.grant | IT Admin | Secondary privileged account |
+| svc-sql-report | Service account | SPN registered (MSSQLSvc/win-dc01.soc.local:1433); Kerberoast target |
+| svc-backup-ops | Service account | DoesNotRequirePreAuth initially set True; AS-REP Roast target |
 
 ---
 
 ## Attack Chain
 
-| # | Technique | Tool | MITRE | Event ID | Status |
-|---:|---|---|---|---|---|
-| 1 | AD Reconnaissance | BloodHound CE / SharpHound | T1087.002 | LDAP / Event 1644 | Complete |
-| 2 | Kerberoasting | Impacket GetUserSPNs | T1558.003 | 4769 (RC4 / etype 0x17) | Complete |
-| 3 | AS-REP Roasting | Impacket GetNPUsers | T1558.004 | 4768 (no pre-auth) | Complete |
-| 4 | LSASS Dumping | Mimikatz / ProcDump | T1003.001 | Sysmon Event 10 | Blocked by Defender PPL |
-| 5 | DCSync | Impacket secretsdump | T1003.006 | 4662 (replication GUIDs) | Complete |
+| Technique | Tool | MITRE Sub-Technique | Key Event | Outcome |
+|---:|---|---|---|---|
+| AD Reconnaissance | SharpHound / BloodHound CE | T1087.002 | LDAP burst / Event 1644 | Complete |
+| Kerberoasting | Impacket GetUserSPNs | T1558.003 | 4769 (etype 0x17) | Complete |
+| AS-REP Roasting | Impacket GetNPUsers | T1558.004 | 4768 (no pre-auth) | Complete |
+| LSASS Credential Dumping | ProcDump / Mimikatz | T1003.001 | Sysmon Event 10 | Blocked by Defender PPL |
+| DCSync | Impacket secretsdump | T1003.006 | 4662 (replication GUIDs) | Complete |
 
 ---
 
 ## Telemetry
 
-| Event ID | Technique | Count in ELK |
+| Event ID | Technique | Volume |
 |---|---|---|
-| 4769 | Kerberoasting (RC4 requests) | 237 events |
-| 4768 | AS-REP Roasting (no pre-auth) | 98 events |
-| 4662 | DCSync (replication rights exercised) | 103 events |
+| 4769 | Kerberoasting (RC4 TGS requests) | 237 events |
+| 4768 | AS-REP Roasting (no pre-auth requests) | 98 events |
+| 4662 | DCSync (directory replication access) | 103 events |
 
-**Key finding — telemetry gap:** Event 4769 was initially invisible in ELK because WIN-DC01 lacked Winlogbeat. This is a real detection engineering failure mode: an incomplete telemetry pipeline creates a blind spot for DC-side authentication events. Resolved by installing Winlogbeat on the domain controller.
+An absence of Event 4769 data early in Phase 5 led to the identification of a critical telemetry gap: Winlogbeat had not been deployed to WIN-DC01, leaving all domain controller authentication events unshipped to the SIEM. Domain controllers generate the Kerberos events essential to detecting both Kerberoasting (4769) and AS-REP Roasting (4768) — neither technique produces these events on the endpoint. The gap was identified, corrected, and documented as a finding. In environments relying on a generic SIEM rather than a dedicated identity threat detection product, DC telemetry coverage is a prerequisite for Kerberos-based detection.
 
 ---
 
 ## Detection Rules
 
-| # | Rule Name | Signal | Severity | MITRE | Status |
-|---:|---|---|---|---|---|
-| 1 | Kerberoasting RC4 | Event 4769, ticket_encryption_type 0x17 | High | T1558.003 | Verified firing |
-| 2 | AS-REP Roasting | Event 4768, PreAuth failure | High | T1558.004 | Verified firing |
-| 3 | DCSync | Event 4662, replication GUIDs | Critical | T1003.006 | Verified firing |
-| 4 | SharpHound LDAP Burst | High LDAP query volume | High | T1087.002 | Verified firing |
-| 5 | LSASS Process Access | Sysmon Event 10, lsass.exe target | High | T1003.001 | Verified — PPL blocked dump |
-| 6 | Lateral Movement NTLM | Event 4624, LogonType 3 | Medium | T1550.002 | Verified firing |
+| Rule | Signal | Severity | MITRE | Validation |
+|---:|---|---|---|---|
+| 01 — Kerberoasting RC4 | Event 4769, TicketEncryptionType 0x17 | High | T1558.003 | Verified — 237 alerts |
+| 02 — AS-REP Roasting | Event 4768, PreAuthType 0 | High | T1558.004 | Verified — 98 alerts |
+| 03 — DCSync | Event 4662, DS-Replication GUIDs | Critical | T1003.006 | Verified — 103 alerts |
+| 04 — SharpHound LDAP Burst | Event 4662 volume threshold | High | T1087.002 | Verified |
+| 05 — LSASS Process Access | Sysmon Event 10, lsass.exe target | High | T1003.001 | Verified — PPL blocked dump |
+| 06 — Lateral Movement NTLM | Event 4624, LogonType 3, NTLM | Medium | T1550.002 | Verified |
 
-Full KQL rule documentation: [`rules/kql/`](rules/kql/) | Sigma rules: [`rules/sigma/`](rules/sigma/)
+Full rule documentation with KQL queries, logic, prerequisites, test methods, and false positive analysis: [`rules/kql/`](rules/kql/) | Sigma format: [`rules/sigma/`](rules/sigma/)
 
-**False positive finding:** An initially broad Event 4672 (special logon) rule generated excessive alerts on the domain controller. Documented as a detection engineering tuning exercise. Recommendation: exclude SYSTEM, LOCAL SERVICE, NETWORK SERVICE, and known admin accounts.
+During detection engineering, a rule targeting Event 4672 (Special Logon) was found to generate excessive alerts on the domain controller due to the high volume of privileged logons by system processes. The rule was not included in the final rule set. The recommended tuning approach — excluding SYSTEM, LOCAL SERVICE, NETWORK SERVICE, and known administrative accounts — is documented in [`rules/kql/`](rules/kql/).
 
 ---
 
-## AD Hardening (Phase 10)
+## Hardening Controls (Phase 10)
 
-| Control | What It Mitigates | Validated |
+Each control was selected to directly address a specific weakness exploited during the attack chain.
+
+| Control | Exploited Weakness Addressed | Validated |
 |---|---|---|
-| Protected Users group (r.hayes, Administrator) | NTLM auth, credential caching, RC4 Kerberos for privileged accounts | Yes |
-| AES-only Kerberos for svc-sql-report | Kerberoasting via RC4 (directly closes the Phase 5 attack vector) | Yes |
-| Kerberos PreAuth re-enabled for svc-backup-ops | AS-REP Roasting (directly closes the Phase 3 attack vector) | Yes |
-| Strong password policy (MinLength 16, Lockout 5) | Password guessing and weak credential attacks | Yes |
-| Directory Service Auditing enabled | DS Access and DS Changes events for DCSync and recon detection | Yes |
-| Post-hardening BloodHound comparison | Measurable reduction in attack paths to Domain Admin | In progress |
+| Protected Users group — r.hayes, Administrator | NTLM authentication and credential caching for privileged accounts | Yes |
+| AES-only Kerberos enforcement — svc-sql-report | RC4 TGS requests that enabled offline hash cracking (T1558.003) | Yes |
+| Kerberos PreAuth re-enabled — svc-backup-ops | AS-REP returned without pre-authentication challenge (T1558.004) | Yes |
+| Password policy — MinLength 16, Complexity, Lockout 5 | Weak foothold credentials that provided initial access | Yes |
+| Directory Service Access auditing | Event 4662 generation required for DCSync and LDAP recon detection | Yes |
+
+A post-hardening SharpHound collection (315 objects enumerated) was run to generate data for BloodHound before-and-after comparison. That comparison is pending and will be added to [`evidence/EVIDENCE_INDEX.md`](evidence/EVIDENCE_INDEX.md) upon completion.
 
 ---
 
-## Key Findings and Lessons
+## Selected Findings
 
-### 1. Telemetry gap on the domain controller
-Kerberoasting generates Event 4769 — but only on the DC. If the DC does not have a log shipper installed, the event never reaches the SIEM. This was discovered during Phase 5 and corrected by installing Winlogbeat on WIN-DC01. The detection gap was documented as a real SOC troubleshooting finding.
+**Telemetry blind spot on the domain controller.** Kerberoasting and AS-REP Roasting generate their primary Windows Security events (4769 and 4768) exclusively on the domain controller. When the DC lacks a log-forwarding agent, neither technique produces any SIEM-visible evidence regardless of the quality of detection rules authored against the winlogbeat-* index. The finding underscores that detection engineering and telemetry pipeline validation are inseparable disciplines.
 
-### 2. LSASS PPL blocks credential dumping without disabling Defender
-Protected Process Light prevented Mimikatz and ProcDump from reading LSASS memory. Sysmon Event 10 captured the attempt. This is documented as a defensive validation, not a failure — the control worked exactly as intended.
+**PPL as a detection enabler.** The LSASS credential dump was blocked by Windows Defender Protected Process Light before any credential material was extracted. Sysmon Event 10 recorded the process access attempt independently of the dump outcome. The result is a case in which a functioning endpoint control and a functioning SIEM detection both fired on the same event — the control prevented harm and the SIEM captured evidence of the attempt.
 
-### 3. DCSync detection requires specific replication GUIDs
-Event 4662 fires for many legitimate replication operations. The detection requires filtering on the specific DS-Replication-Get-Changes and DS-Replication-Get-Changes-All GUIDs to separate attack traffic from normal DC replication activity.
+**DCSync detection requires specific replication GUIDs.** Event 4662 is generated for routine directory operations as well as for DCSync. Filtering on the DS-Replication-Get-Changes-All GUID (`1131f6ad-9c07-11d1-f79f-00c04fc2dcd2`) and excluding machine accounts (`SubjectUserName` ending in `$`) isolates non-DC sources exercising replication rights. Without that specificity, the rule produces an unworkable alert volume.
 
-### 4. Hardening should directly map to the attack that exposed the weakness
-Each hardening control applied in Phase 10 directly addresses a specific attack technique from the chain. AES-only Kerberos closes Kerberoasting. PreAuth enforcement closes AS-REP Roasting. This attack-to-mitigation mapping is the portfolio value of the before/after comparison.
-
-### 5. BloodHound path analysis before and after hardening is evidence of measurable improvement
-Showing attack path reduction in BloodHound graph form is more compelling than a list of configuration changes. The before state shows paths to Domain Admin. The after state shows those paths removed or requiring additional steps.
+**Attack-to-mitigation traceability.** The hardening controls applied in Phase 10 were selected in direct correspondence with the techniques executed in Phases 5–7. AES-only Kerberos enforcement renders the Phase 5 attack ineffective. PreAuth re-enablement renders the Phase 6 attack ineffective. That one-to-one correspondence between identified weakness and applied control is the measurable outcome of the project.
 
 ---
 
-## Evidence
+## Production Considerations
 
-The repository includes screenshot evidence covering:
-
-- Domain controller build and AD DS installation
-- User and service account creation including intentional misconfigurations
-- Kali attacker VM setup and tool validation
-- BloodHound recon and attack path visualization
-- Kerberoasting hash capture (hash redacted)
-- AS-REP Roasting hash capture (hash redacted)
-- LSASS dump attempt — blocked by Defender PPL
-- DCSync execution (hashes redacted)
-- ELK telemetry for every technique (Events 4769, 4768, 4662, Sysmon 10)
-- All 6 Kibana detection rules firing
-- Winlogbeat installed on DC — telemetry gap resolved
-- All 5 hardening controls applied and validated
-- Post-hardening SharpHound collection
-
-Full evidence index: [`evidence/EVIDENCE_INDEX.md`](evidence/EVIDENCE_INDEX.md)
-
----
-
-## What I Would Improve for Production
-
-1. **Use Microsoft Entra ID Connect for hybrid identity** — the lab uses a standalone on-premises domain. A production environment would integrate with Entra ID for cloud authentication and conditional access.
-2. **Enable Microsoft Defender for Identity** — MDI provides DC-level sensor coverage without requiring a manual Winlogbeat deployment. The telemetry gap in this lab is exactly the problem MDI solves.
-3. **Implement LAPS** — Local Administrator Password Solution eliminates shared local admin credentials and lateral movement via pass-the-hash using local accounts.
-4. **Tiered administration model** — separate admin accounts for Tier 0 (DCs), Tier 1 (servers), and Tier 2 (workstations) to limit the blast radius of a compromised account.
-5. **Export detection rules as NDJSON and version-control them** — the NDJSON export is included in this repository, but a production workflow would include CI/CD rule validation and automated deployment.
+Several design decisions appropriate for a controlled research environment would require revision in a production context. Certificate verification between Logstash and Elasticsearch was relaxed during initial setup and should be enforced in any external deployment. Beat agents authenticate using the elastic superuser rather than a least-privilege API key, which is inconsistent with production credential hygiene. The domain operates without Microsoft Defender for Identity, without LAPS, and without a tiered administration model — each of which would materially reduce the attack surface in a production environment. These limitations are addressed in detail in [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md).
 
 ---
 
@@ -204,33 +170,28 @@ Full evidence index: [`evidence/EVIDENCE_INDEX.md`](evidence/EVIDENCE_INDEX.md)
 
 | Document | Description |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Network topology, VM specs, domain design, and data flow |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Phase-by-phase build guide — DC, client, Kali, attack chain, detection, hardening |
-| [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md) | Honest assessment of lab scope vs. production |
-| [CHANGELOG.md](CHANGELOG.md) | Dated build history |
-| [evidence/EVIDENCE_INDEX.md](evidence/EVIDENCE_INDEX.md) | All screenshots mapped to phases and detection rules |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Network topology, VM specifications, domain design, telemetry flow, and design rationale |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Phase-by-phase build reference — domain controller, endpoints, attack chain, detection, hardening |
+| [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md) | Scope boundaries, known gaps, and planned improvements |
+| [CHANGELOG.md](CHANGELOG.md) | Dated build history by phase |
+| [evidence/EVIDENCE_INDEX.md](evidence/EVIDENCE_INDEX.md) | Screenshot inventory mapped to phases and detection rules |
 
 ---
 
-## Methodology References
+## References
 
-| Source | Application |
-|---|---|
-| SANS SEC504 / GCIH | Incident handling lifecycle and AD attack methodology |
-| SANS SEC450 / GSOC | SOC detection and triage workflow |
-| *Adversary Emulation with MITRE ATT&CK* | Structured attack simulation and detection coverage |
-| *Applied Incident Response* | Evidence collection, incident timeline, reporting format |
-| *Intelligence-Driven Incident Response* (2nd ed.) | Threat-informed detection approach |
-| *Advanced Penetration Testing* (Wiley) | Offensive tradecraft context for AD simulation |
-| MITRE ATT&CK Framework | Technique and sub-technique mapping |
+Bhatt, Sherri, and others. *Applied Incident Response*. Wiley, 2020.
 
----
+Caliber, John, and Rebekah Brown. *Intelligence-Driven Incident Response*, 2nd ed. O'Reilly Media, 2023.
 
-## Repository Status
+Engebretson, Patrick. *Advanced Penetration Testing*. Wiley, 2014.
 
-This project is actively being documented for portfolio publication. The lab is built and producing data through Phase 10. Remaining work: BloodHound before/after comparison screenshots, MITRE ATT&CK Navigator export, incident report, and final documentation cleanup before the GitHub push.
+MITRE Corporation. "MITRE ATT&CK Enterprise Matrix." *MITRE ATT&CK*, 2024, attack.mitre.org.
+
+Peacock, Robby, and others. *Adversary Emulation with MITRE ATT&CK*. No Starch Press, 2023.
+
+SANS Institute. *SEC504: Hacker Tools, Techniques, and Incident Handling*. SANS Institute, 2025.
 
 ---
 
-Built by **John Medina**
-GitHub: [m549n1ja](https://github.com/m549n1ja)
+Built by John Medina | GitHub: [m549n1ja](https://github.com/m549n1ja)

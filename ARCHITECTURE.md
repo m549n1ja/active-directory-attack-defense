@@ -17,195 +17,189 @@
  WIN-DC01      WIN10-ADCLIENT  Kali-Attacker   ELK-SIEM
  192.168.10.160 192.168.10.161 192.168.10.20  192.168.10.100
  WinSrv 2022   Windows 10 Pro  Kali Linux     Ubuntu 24.04
- soc.local DC  domain joined   Attack tools   Elasticsearch
+ soc.local DC  Domain joined   Attack tools   Elasticsearch
  AD DS + DNS   Sysmon64        BloodHound CE  Logstash:5044
  Winlogbeat    Winlogbeat ─────────────────► Kibana:5601
       │              │
       └──────────────┘
-      Both ship to Logstash on ELK-SIEM
+      Both forward to Logstash on ELK-SIEM
                    │                              │
                    └──────────────────────────────┘
               Ryzen 9 Desktop | 192.168.10.10
               VMware Workstation | 64 GB RAM
 ```
 
+All four virtual machines operate on VMware Workstation in bridged network mode, placing each on the 192.168.10.0/24 segment alongside the physical host. Bridged networking was selected rather than NAT to preserve realistic source IP addressing in telemetry — NAT would mask the Kali attacker's address behind the host IP, complicating event correlation in Kibana. All traffic transits OPNsense at 192.168.10.1.
+
 ---
 
-## VM Specifications
+## Virtual Machine Specifications
 
-| VM | OS | IP | vCPU | RAM | Role |
+| VM | Operating System | IP Address | vCPU | RAM | Role |
 |---|---|---|---:|---:|---|
 | WIN-DC01 | Windows Server 2022 | 192.168.10.160 | 2 | 4 GB | Domain Controller |
 | WIN10-ADCLIENT | Windows 10 Pro | 192.168.10.161 | 2 | 4 GB | Domain workstation |
-| Kali-Attacker | Kali Linux | 192.168.10.20 | 2 | 4 GB | Attack platform |
-| ELK-SIEM | Ubuntu Server 24.04 | 192.168.10.100 | 4 | 16 GB | SIEM (Lab 1, reused) |
-
-All VMs run on VMware Workstation with bridged networking. Bridged mode is intentional — it places all VMs on the same physical LAN segment as the OPNsense gateway, ensuring realistic network topology without NAT obscuring traffic.
+| Kali-Attacker | Kali Linux | 192.168.10.20 | 2 | 4 GB | Adversary emulation platform |
+| ELK-SIEM | Ubuntu Server 24.04 | 192.168.10.100 | 4 | 16 GB | SIEM (shared with Lab 1) |
 
 ---
 
 ## Domain Design
 
+The soc.local domain was configured as a single-forest, single-domain environment with WIN-DC01 operating as the sole domain controller. The domain name soc.local and NetBIOS name SOC were selected to reflect a plausible internal naming convention without conflict with any external namespace. All virtual machines are configured with 192.168.10.160 as their primary DNS server to ensure Kerberos and domain join operations resolve correctly against the domain controller. The forest and domain functional levels are set to Windows Server 2016.
+
 | Item | Value |
 |---|---|
 | Domain name | soc.local |
 | NetBIOS name | SOC |
-| Domain Controller | WIN-DC01 (192.168.10.160) |
-| Forest / Domain functional level | Windows Server 2016 |
-| DNS | WIN-DC01 serves DNS for soc.local; all VMs point to 192.168.10.160 as primary DNS |
+| Domain Controller | WIN-DC01 |
+| Forest/Domain functional level | Windows Server 2016 |
+| DNS authority | WIN-DC01 (192.168.10.160) |
 
 ---
 
 ## Active Directory User Structure
 
-| Account | Type | Group Membership | Notes |
+The account population was designed to reflect a plausible small organization while providing the specific conditions required by each attack technique. Two categories of accounts carry intentional misconfigurations: service accounts provisioned with the attributes that make Kerberoasting and AS-REP Roasting possible, and low-privilege foothold accounts with weak credentials to simulate the initial access phase.
+
+| Account | Classification | Group Membership | Configuration Notes |
 |---|---|---|---|
-| d.reyes | Standard user | Domain Users | Normal employee |
-| m.santos | Standard user | Domain Users | Normal employee |
-| e.miller | Standard user | Domain Users | Normal employee |
-| l.kim | Standard user | Domain Users | Normal employee |
-| a.brooks | Standard user | Domain Users | Normal employee |
-| p.nair | Standard user | Domain Users | Normal employee |
-| m.lee | Standard user | Domain Users | Normal employee |
-| s.alvarez | Standard user | Domain Users | Normal employee |
-| h.temp | Weak foothold | Domain Users | Password123! — initial access foothold |
-| o.intern | Weak foothold | Domain Users | Welcome1! — initial access foothold |
+| d.reyes, m.santos, e.miller, l.kim | Standard user | Domain Users | No special attributes |
+| a.brooks, p.nair, m.lee, s.alvarez | Standard user | Domain Users | No special attributes |
+| h.temp | Weak foothold | Domain Users | Weak credential — primary initial access account |
+| o.intern | Weak foothold | Domain Users | Weak credential — secondary initial access account |
 | r.hayes | Domain Admin | Domain Admins | Primary privileged target; added to Protected Users in Phase 10 |
-| o.grant | IT Admin | Domain Admins | Secondary admin |
-| svc-sql-report | Service account | Domain Users | SPN: MSSQLSvc/win-dc01.soc.local:1433 — Kerberoast target |
-| svc-backup-ops | Service account | Domain Users | DoesNotRequirePreAuth initially True — AS-REP Roast target |
+| o.grant | IT Admin | Domain Admins | Secondary privileged account |
+| svc-sql-report | Service account | Domain Users | SPN registered: MSSQLSvc/win-dc01.soc.local:1433; RC4 initially permitted |
+| svc-backup-ops | Service account | Domain Users | DoesNotRequirePreAuth initially set to True |
 
 ---
 
-## Intentional Misconfigurations (Lab Design)
+## Intentional Misconfigurations
 
-The following misconfigurations were created deliberately to simulate a realistic vulnerable AD environment:
+The following misconfigurations were introduced deliberately to create conditions under which the targeted attack techniques would succeed. Each was remediated in Phase 10.
 
-| Misconfiguration | Account | MITRE Technique | Phase Exploited |
-|---|---|---|---|
-| Registered SPN on service account | svc-sql-report | T1558.003 — Kerberoasting | Phase 5 |
-| PreAuth disabled | svc-backup-ops | T1558.004 — AS-REP Roasting | Phase 6 |
-| Weak password on foothold account | h.temp, o.intern | T1078 — Valid Accounts | Phases 5, 6, 7 |
-| Domain Admin without Protected Users | r.hayes | T1003 — Credential Dumping | Phase 7 |
-| RC4 encryption allowed on SPN account | svc-sql-report | T1558.003 — Kerberoasting (RC4) | Phase 5 |
-
-All misconfigurations were remediated in Phase 10 (AD Hardening).
+| Misconfiguration | Affected Account | MITRE Sub-Technique | Exploited In | Remediation |
+|---|---|---|---|---|
+| Registered SPN on service account | svc-sql-report | T1558.003 | Phase 5 | AES-only Kerberos enforced |
+| PreAuth disabled | svc-backup-ops | T1558.004 | Phase 6 | DoesNotRequirePreAuth set to False |
+| Weak password on foothold accounts | h.temp, o.intern | T1078 | Phases 5, 6, 7 | Password policy strengthened |
+| Domain Admin without Protected Users membership | r.hayes | T1003 | Phase 7 | Added to Protected Users group |
+| RC4 encryption permitted on SPN account | svc-sql-report | T1558.003 | Phase 5 | msDS-SupportedEncryptionTypes restricted to AES128/AES256 |
 
 ---
 
 ## Telemetry Architecture
 
-### Windows Endpoint → ELK
+### Domain Controller Event Flow
 
-```text
-WIN10-ADCLIENT (192.168.10.161)
-    │
-    ├── Sysmon64 (SwiftOnSecurity config)
-    │     └── writes to: Microsoft-Windows-Sysmon/Operational event channel
-    │
-    └── Winlogbeat 8.19.13
-          ├── collects: Windows Security (Security event channel)
-          ├── collects: Sysmon events (Microsoft-Windows-Sysmon/Operational)
-          └── ships to: Logstash 192.168.10.100:5044
-```
-
-### Domain Controller → ELK
+WIN-DC01 is the exclusive source of the Kerberos-related Windows Security events critical to this project. Events 4769, 4768, and 4662 are generated by the Kerberos Distribution Center and the directory service audit subsystem on the domain controller and are not replicated to endpoints. Consequently, a Winlogbeat agent on WIN10-ADCLIENT alone is insufficient for detection of Kerberoasting, AS-REP Roasting, or DCSync. This constraint was identified as a gap during Phase 5 and resolved by deploying Winlogbeat on WIN-DC01.
 
 ```text
 WIN-DC01 (192.168.10.160)
     │
     └── Winlogbeat 8.19.13
-          ├── collects: Windows Security (Security event channel)
-          │     └── includes DC-only events: 4769, 4768, 4662, 4672, 4724
-          └── ships to: Logstash 192.168.10.100:5044
-
-Note: Winlogbeat was not installed on WIN-DC01 until Phase 5.
-      This caused a telemetry blind spot for all DC-side Kerberos events.
-      Documented as a critical detection engineering finding.
+          ├── Windows Security event channel
+          │     Events: 4769, 4768, 4762, 4672, 4720, 4740, 4624, 4625
+          └── Ships to: Logstash 192.168.10.100:5044
 ```
 
-### ELK Processing
+### Domain Workstation Event Flow
+
+WIN10-ADCLIENT provides endpoint-level telemetry not available from the domain controller, including Sysmon process and network events that underpin the LSASS access detection.
+
+```text
+WIN10-ADCLIENT (192.168.10.161)
+    │
+    ├── Sysmon64 (SwiftOnSecurity configuration)
+    │     Event 10 — ProcessAccess (LSASS access detection)
+    │     Event 1  — Process creation
+    │     Event 3  — Network connection
+    │
+    └── Winlogbeat 8.19.13
+          ├── Windows Security event channel
+          ├── Microsoft-Windows-Sysmon/Operational
+          ├── Microsoft-Windows-PowerShell/Operational
+          └── Ships to: Logstash 192.168.10.100:5044
+```
+
+### ELK Processing Pipeline
 
 ```text
 Logstash (192.168.10.100:5044)
     │
-    ├── input: beats (Winlogbeat from both WIN-DC01 and WIN10-ADCLIENT)
-    ├── filter: tag by agent type (winlogbeat), add lab metadata
+    ├── input: beats (Winlogbeat from WIN-DC01 and WIN10-ADCLIENT)
+    ├── filter: agent type tagging, lab metadata fields
     └── output: Elasticsearch (https://localhost:9200)
-                   └── index: winlogbeat-*
-                              └── Kibana Security reads: winlogbeat-* data view
+                   index pattern: winlogbeat-*
+                              ↓
+                   Kibana Security — winlogbeat-* data view
 ```
 
 ---
 
-## Key Events by Technique
+## Event Reference by Technique
 
-| Technique | MITRE | Key Event ID | Source | Notes |
+| Technique | MITRE Sub-Technique | Event ID | Generating Source | Filter Conditions |
 |---|---|---|---|---|
-| BloodHound Recon | T1087.002 | LDAP burst / Event 1644 | WIN-DC01 | Event 1644 requires registry key to enable LDAP diagnostic logging |
-| Kerberoasting | T1558.003 | 4769 | WIN-DC01 | Filter on ticket_encryption_type = 0x17 (RC4) |
-| AS-REP Roasting | T1558.004 | 4768 | WIN-DC01 | Filter on failure code 0x0 with pre-auth type 0 |
-| LSASS Dumping (blocked) | T1003.001 | Sysmon Event 10 | WIN10-ADCLIENT | TargetImage: lsass.exe; Defender PPL blocked the dump |
-| DCSync | T1003.006 | 4662 | WIN-DC01 | Properties: DS-Replication-Get-Changes GUIDs |
-| Lateral Movement | T1550.002 | 4624 LogonType 3 | WIN-DC01 / ADCLIENT | Network logon via NTLM |
+| BloodHound Reconnaissance | T1087.002 | 4662, Event 1644 | WIN-DC01 | High LDAP query volume; domainDNS object type |
+| Kerberoasting | T1558.003 | 4769 | WIN-DC01 | TicketEncryptionType = 0x17 (RC4) |
+| AS-REP Roasting | T1558.004 | 4768 | WIN-DC01 | PreAuthType = 0; Status = 0x0 |
+| LSASS Memory Access | T1003.001 | Sysmon Event 10 | WIN10-ADCLIENT | TargetImage = lsass.exe; high GrantedAccess mask |
+| DCSync | T1003.006 | 4662 | WIN-DC01 | DS-Replication-Get-Changes-All GUID present; SubjectUserName not machine account |
+| NTLM Lateral Movement | T1550.002 | 4624 | WIN-DC01 / ADCLIENT | LogonType = 3; AuthenticationPackageName = NTLM |
 
 ---
 
-## Attack Flow
+## Attack Sequence
+
+The following diagram traces the logical flow of the attack chain as executed against the lab environment.
 
 ```text
 Kali-Attacker (192.168.10.20)
     │
-    ├── Phase 4: SharpHound.exe runs on WIN10-ADCLIENT (domain user context)
-    │     └── LDAP queries → WIN-DC01 → BloodHound CE on Kali maps attack paths
+    ├── Phase 4: SharpHound.exe on WIN10-ADCLIENT (domain user context: SOC\r.hayes)
+    │     LDAP enumeration → WIN-DC01 → BloodHound CE maps attack paths on Kali
     │
     ├── Phase 5: impacket-GetUserSPNs
-    │     └── h.temp credentials → request TGS for svc-sql-report → capture RC4 hash
-    │         └── Event 4769 generated on WIN-DC01
+    │     h.temp credentials → TGS request for svc-sql-report → RC4 hash extracted
+    │     Event 4769 (etype 0x17) generated on WIN-DC01
     │
-    ├── Phase 6: impacket-GetNPUsers
-    │     └── svc-backup-ops (no pre-auth) → capture AS-REP hash
-    │         └── Event 4768 generated on WIN-DC01
+    ├── Phase 6a: impacket-GetNPUsers
+    │     No credentials required → AS-REP for svc-backup-ops (no pre-auth)
+    │     Event 4768 (PreAuthType 0) generated on WIN-DC01
     │
-    ├── Phase 6: ProcDump/Mimikatz → LSASS
-    │     └── Defender PPL blocks → Sysmon Event 10 captured, dump fails
+    ├── Phase 6b: ProcDump / Mimikatz → lsass.exe
+    │     Defender PPL denies handle → dump fails
+    │     Sysmon Event 10 generated on WIN10-ADCLIENT
     │
     └── Phase 7: impacket-secretsdump (DCSync)
-          └── replicate NTDS.dit hashes from WIN-DC01
-              └── Event 4662 generated on WIN-DC01 (replication GUIDs)
+          Replication rights exercised by r.hayes account
+          Event 4662 (DS-Replication-Get-Changes-All GUID) generated on WIN-DC01
 ```
 
 ---
 
-## Hardening Architecture (Phase 10)
+## Hardening State Comparison
 
-```text
-Before hardening:
-    svc-sql-report  →  SPN registered + RC4 allowed  →  Kerberoast target
-    svc-backup-ops  →  DoesNotRequirePreAuth = True   →  AS-REP Roast target
-    r.hayes         →  Domain Admin, no PPL           →  DCSync / pass-the-hash target
+The table below documents the security state of the domain before and after Phase 10 hardening, with direct mapping to the attack techniques each change addresses.
 
-After hardening:
-    svc-sql-report  →  AES128 + AES256 only           →  RC4 Kerberoasting fails
-    svc-backup-ops  →  DoesNotRequirePreAuth = False   →  AS-REP Roasting fails
-    r.hayes         →  Protected Users group           →  NTLM auth disabled, no RC4, no caching
-    Administrator   →  Protected Users group           →  Same protections applied
-    Domain policy   →  MinLength 16, Lockout 5        →  Password spray resistance
-    DS Auditing     →  DS Access + DS Changes enabled  →  DCSync events now audited
-```
+| Control Point | Pre-Hardening State | Post-Hardening State | Technique Addressed |
+|---|---|---|---|
+| svc-sql-report encryption | RC4 permitted (etype 0x17 requests succeed) | AES128/AES256 only (RC4 rejected by KDC) | T1558.003 |
+| svc-backup-ops PreAuth | DoesNotRequirePreAuth = True | DoesNotRequirePreAuth = False | T1558.004 |
+| r.hayes group membership | Domain Admins only | Domain Admins + Protected Users | T1003, T1550.002 |
+| Domain password policy | Default (MinLength 7) | MinLength 16, Complexity, Lockout 5 | T1078 |
+| Directory Service auditing | Not configured | DS Access + DS Changes: Success and Failure | T1003.006, T1087.002 |
 
 ---
 
-## Design Decisions
+## Design Rationale
 
-### Why bridged networking instead of NAT?
-VMware NAT would isolate VM traffic from the physical LAN and give each VM a separate NAT'd IP. Bridged networking places all VMs on the real 192.168.10.0/24 segment, which is how they would exist in a real environment. This also means all traffic flows through OPNsense, keeping the network model realistic and allowing the SIEM to see actual source IPs.
+**Bridged networking over NAT.** VMware NAT assigns virtual machines private addresses that are masqueraded behind the host IP in all external traffic. Bridged mode places each VM directly on the physical LAN with its own IP address, preserving realistic source addressing in telemetry and ensuring OPNsense logs reflect actual VM-to-VM communication paths.
 
-### Why intentional misconfigurations instead of a default installation?
-A default Active Directory installation with no SPNs and no PreAuth-disabled accounts is not attackable using Kerberoasting or AS-REP Roasting. The misconfigurations were created deliberately to simulate the kind of legacy service accounts and configuration debt found in real enterprise environments.
+**Intentional misconfigurations as research conditions.** A freshly installed Active Directory domain with no SPNs and PreAuth enabled universally is not susceptible to Kerberoasting or AS-REP Roasting in their standard forms. The misconfigurations introduced simulate the configuration debt present in many production environments where service accounts have accumulated attributes over years without review. The project documents both the exploitation of those conditions and their remediation.
 
-### Why reuse the existing ELK-SIEM from Lab 1?
-The ELK stack from Lab 1 (homelab-elk-soc) was already running and validated. Reusing it demonstrates that a single SIEM can ingest telemetry from multiple environments — which is realistic for an enterprise SOC. The winlogbeat-* index pattern covers both the Lab 1 Windows endpoint and both Lab 2 Windows machines.
+**Shared ELK infrastructure.** The ELK-SIEM at 192.168.10.100 was originally deployed as part of a separate homelab-elk-soc project. Reusing that infrastructure reflects a realistic architecture in which a single SIEM platform ingests telemetry from multiple environments. The winlogbeat-* index pattern captures events from both the original Lab 1 endpoints and both Lab 2 Windows machines without requiring a separate indexing configuration.
 
-### Why document the telemetry gap as a finding instead of just fixing it quietly?
-The Winlogbeat gap on WIN-DC01 was not a setup error — it was a deliberate documentation decision. In a real SOC, identifying and closing telemetry blind spots is a primary job function. Discovering that Event 4769 was not reaching the SIEM, diagnosing the cause (missing Beat agent on the DC), and validating the fix (events appearing in Kibana after installation) is a more valuable portfolio story than a lab where everything worked perfectly from the start.
+**Documenting the telemetry gap as a finding rather than correcting it silently.** The absence of Winlogbeat on WIN-DC01 at the outset of Phase 5 created a condition in which Kerberoasting produced no SIEM-visible evidence. Correcting it without documentation would obscure a class of operational failure — incomplete telemetry pipeline coverage — that occurs regularly in production SOC environments. The discovery and resolution of the gap, with before-and-after evidence, constitutes a more instructive record than a lab in which all telemetry was present from the start.

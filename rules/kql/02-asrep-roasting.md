@@ -13,9 +13,9 @@
 
 ## Purpose
 
-Detects AS-REP Roasting — an attack that targets accounts with Kerberos pre-authentication disabled. When pre-authentication is disabled, an attacker can request an Authentication Service Response (AS-REP) for any user without knowing their password, then crack the encrypted portion offline.
+This rule detects AS-REP Roasting, a technique that targets accounts configured with Kerberos pre-authentication disabled (`DoesNotRequirePreAuth = True`). When that attribute is set, the Key Distribution Center returns an AS-REP containing a session key encrypted with the account's password-derived key in response to any AS-REQ — without requiring the requester to first prove knowledge of that key via an encrypted timestamp. The encrypted blob can then be subjected to offline dictionary or brute-force attack.
 
-This rule fired on the AS-REP Roasting attack executed in Phase 6 against svc-backup-ops.
+The rule was validated against Phase 6 of this project, during which `impacket-GetNPUsers` was used to extract an AS-REP from svc-backup-ops, which had DoesNotRequirePreAuth set to True during the attack phase.
 
 ---
 
@@ -32,19 +32,11 @@ not winlog.event_data.TargetUserName: "*$"
 
 ## Rule Logic
 
-Event 4768 is generated on the domain controller when a Kerberos Authentication Service (AS) request is received. The key fields are:
+Event 4768 records each Kerberos Authentication Service request received by the domain controller. Three field conditions define the detection. `PreAuthType: 0` indicates that the AS-REQ carried no pre-authentication data — no encrypted timestamp was provided to prove knowledge of the account key. `Status: 0x0` confirms the KDC returned a successful response, meaning the AS-REP was issued. The exclusion of `TargetUserName` values ending in `$` removes machine account authentication, which is both routine and voluminous.
 
-- `PreAuthType: 0` — pre-authentication was not used. Legitimate logins always include pre-auth (type 2 = encrypted timestamp).
-- `Status: 0x0` — the request succeeded. A success with no pre-auth is the AS-REP Roasting signature.
-- `TargetUserName` excluding `*$` — machine accounts are excluded.
+The combination of `PreAuthType: 0` and `Status: 0x0` is the AS-REP Roasting signature. A legitimate user logging in through a Kerberos-capable client will always send a pre-authentication value; a request absent that value against a standard account is anomalous.
 
----
-
-## Why This Fires on AS-REP Roasting
-
-When `impacket-GetNPUsers` (or Rubeus `asreproast`) targets an account with `DoesNotRequirePreAuth = True`, it sends a bare AS-REQ with no encrypted timestamp. The KDC responds with an AS-REP containing a portion encrypted with the account's password hash — which can then be cracked offline. Event 4768 records this request with `PreAuthType = 0`.
-
-After re-enabling PreAuth on svc-backup-ops in Phase 10, this attack fails because the KDC requires an encrypted timestamp before responding.
+Following the re-enablement of Kerberos pre-authentication on svc-backup-ops in Phase 10 (`DoesNotRequirePreAuth = False`), the KDC requires an encrypted timestamp before issuing an AS-REP. Requests without it are rejected, and this rule's alert volume for that account drops to zero.
 
 ---
 

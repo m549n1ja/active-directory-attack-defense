@@ -13,9 +13,7 @@
 
 ## Purpose
 
-Detects lateral movement using NTLM authentication, which is the primary signal for Pass-the-Hash attacks. When an attacker uses a captured NTLM hash to authenticate (rather than knowing the actual password), the authentication event is recorded with LogonType 3 (network logon) and authentication package NTLM.
-
-In modern Kerberos environments, network authentication typically uses Kerberos. An NTLM network logon from an unexpected source — particularly a workstation authenticating to a server or DC — is a lateral movement indicator.
+This rule detects lateral movement via NTLM network authentication, the mechanism underlying Pass-the-Hash. When a captured NTLM hash is used in place of a plaintext password, the resulting authentication event carries LogonType 3 (network logon) and an authentication package value of NTLM. In a correctly configured Kerberos domain, network-layer authentication between domain-joined systems defaults to Kerberos. NTLM appearing in a network logon context — particularly from unexpected source addresses or against domain controllers — warrants investigation as a potential lateral movement indicator.
 
 ---
 
@@ -59,11 +57,11 @@ Event 4624 fires on successful logon. The fields of interest:
 
 ---
 
-## Why Kerberos vs. NTLM Matters for Detection
+## Kerberos vs. NTLM and Detection Significance
 
-Kerberos authentication requires the client to prove knowledge of the password to obtain a Kerberos ticket. NTLM authentication uses a challenge-response mechanism that only requires the NTLM hash — not the plaintext password. This is why pass-the-hash works: the attacker presents the hash directly during the NTLM challenge-response without needing to crack it.
+Kerberos requires the authenticating client to prove knowledge of the account secret to obtain a ticket-granting ticket from the KDC. NTLM operates via a challenge-response protocol in which the client responds with a hash-derived value — meaning that possession of the NTLM hash is sufficient to complete authentication without the plaintext credential. Pass-the-Hash exploits this property directly.
 
-Protected Users group members (applied to r.hayes and Administrator in Phase 10) cannot use NTLM authentication at all, which means this attack path is removed for those accounts after hardening.
+Members of the Protected Users security group cannot authenticate using NTLM under any circumstance, regardless of what the client requests. Following the addition of r.hayes and Administrator to Protected Users in Phase 10, NTLM network logons for those accounts fail at the authentication layer, and the lateral movement path they represent is closed without requiring changes to network segmentation or firewall policy.
 
 ---
 

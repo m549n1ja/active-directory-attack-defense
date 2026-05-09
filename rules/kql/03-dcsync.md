@@ -13,9 +13,9 @@
 
 ## Purpose
 
-Detects DCSync attacks — a technique where an attacker with replication rights uses the Directory Replication Service (DRS) protocol to request password hashes for any domain account, including the KRBTGT account. The attack mimics legitimate domain controller replication but originates from a non-DC source.
+This rule detects DCSync, a credential extraction technique in which an account holding Active Directory replication rights uses the Directory Replication Service (DRS) protocol to request password hashes for domain accounts — including the KRBTGT account — without requiring interactive access to the domain controller. The technique is indistinguishable from legitimate inter-DC replication at the protocol level; detection depends on identifying replication operations originating from accounts that are not domain controller machine accounts.
 
-This rule fired on the DCSync attack executed in Phase 7 using `impacket-secretsdump` from Kali-Attacker.
+The rule was validated against Phase 7 of this project, during which `impacket-secretsdump` was used with r.hayes credentials to replicate credential material from WIN-DC01.
 
 ---
 
@@ -36,21 +36,17 @@ not winlog.event_data.SubjectUserName: "*$"
 
 ## Rule Logic
 
-Event 4662 fires when an operation is performed on an Active Directory object. The critical signal is the specific GUIDs in the `Properties` field:
+Event 4662 is generated on the domain controller when an operation is performed against an Active Directory object. The detection pivots on two conditions: the presence of specific GUIDs in the `Properties` field, and the identity of the subject performing the operation.
 
-| GUID | Right | Meaning |
+| GUID | Extended Right | Notes |
 |---|---|---|
-| `1131f6aa-9c07-11d1-f79f-00c04fc2dcd2` | DS-Replication-Get-Changes | Basic replication right |
-| `1131f6ad-9c07-11d1-f79f-00c04fc2dcd2` | DS-Replication-Get-Changes-All | Full replication — includes secret data (password hashes) |
-| `89e95b76-444d-4c62-991a-0facbeda640c` | DS-Replication-Get-Changes-In-Filtered-Set | Extended replication |
+| `1131f6aa-9c07-11d1-f79f-00c04fc2dcd2` | DS-Replication-Get-Changes | Basic replication permission |
+| `1131f6ad-9c07-11d1-f79f-00c04fc2dcd2` | DS-Replication-Get-Changes-All | Full replication — includes password hashes and secret attributes |
+| `89e95b76-444d-4c62-991a-0facbeda640c` | DS-Replication-Get-Changes-In-Filtered-Set | Extended replication for read-only DCs |
 
-`SubjectUserName` excluding `*$` — machine accounts (legitimate DCs) are excluded. A non-DC account performing replication is the DCSync signal.
+The exclusion of `SubjectUserName` values ending in `$` removes legitimate domain controller machine accounts, which exercise these rights routinely as part of normal inter-DC replication. Any non-machine account appearing in `SubjectUserName` for these GUIDs is the DCSync detection signal — the account is performing an operation that only domain controllers should perform.
 
----
-
-## Why This Fires on DCSync
-
-When `impacket-secretsdump` (or Mimikatz `dcsync`) exercises replication rights, Windows records Event 4662 with the DS-Replication-Get-Changes-All GUID. Legitimate replication between DCs also generates this event — but from machine accounts (`*$`). The filter on `SubjectUserName` without `$` isolates non-DC accounts exercising replication rights.
+When `impacket-secretsdump` exercises replication rights, Windows records Event 4662 with the DS-Replication-Get-Changes-All GUID against the domain object. The event is structurally identical to what a legitimate DC replication generates — the only differentiating factor is that the `SubjectUserName` is a user account rather than a machine account. This specificity is what makes the GUID-plus-account-type filter effective and is also what makes DCSync difficult to detect through behavioral heuristics alone.
 
 ---
 

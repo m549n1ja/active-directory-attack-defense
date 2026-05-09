@@ -13,9 +13,9 @@
 
 ## Purpose
 
-Detects attempts to access LSASS process memory for credential extraction. Sysmon Event 10 (ProcessAccess) fires when any process attempts to open a handle to lsass.exe — regardless of whether the dump succeeds. This rule captures the attempt even when Defender Protected Process Light (PPL) blocks the actual dump.
+This rule detects attempts to open a handle to lsass.exe for the purpose of credential extraction from process memory. Sysmon Event 10 (ProcessAccess) records the handle request at the time it is made, irrespective of whether the requesting process successfully reads credential material. This property makes the rule effective even in environments where Windows Defender Protected Process Light (PPL) is configured to deny the actual memory read — the access attempt generates evidence independent of its outcome.
 
-This rule was validated in Phase 6 when Mimikatz/ProcDump was used against WIN10-ADCLIENT. PPL blocked the credential extraction, but Sysmon Event 10 captured the access attempt.
+The rule was validated in Phase 6 of this project, during which ProcDump was used to attempt an LSASS dump on WIN10-ADCLIENT. PPL denied the dump; Sysmon Event 10 recorded the access attempt with the requested handle access mask.
 
 ---
 
@@ -48,15 +48,11 @@ High-risk access masks for credential dumping include:
 
 ---
 
-## Why PPL Still Generates Telemetry
+## PPL and Telemetry Independence
 
-Windows Defender Protected Process Light (PPL) prevents non-PPL processes from obtaining high-privilege handles to LSASS. The handle request is denied at the kernel level — but Sysmon still captures the attempt in Event 10 before the kernel rejects it. This means:
+Windows Defender Protected Process Light assigns lsass.exe a protection level that prevents non-PPL processes from obtaining handles with read or write access to its memory space. When ProcDump or Mimikatz requests such a handle, the kernel denies the request before any credential material is accessed. Sysmon, however, captures the ProcessAccess event at the point the request is made — before the kernel's enforcement decision — and records the `GrantedAccess` mask that was requested.
 
-1. The credential dump fails
-2. Event 10 fires with the requested `GrantedAccess` mask
-3. The alert fires — the defense worked AND the detection fired
-
-This outcome — blocked attempt captured in telemetry — is the intended result and represents both a functioning endpoint control and a functioning SIEM detection.
+The result is that PPL and Sysmon provide complementary and independent evidence: the endpoint control prevents credential extraction, and the SIEM records that the attempt occurred. Both signals are present in the event record from Phase 6, which shows a high-privilege access mask against lsass.exe with no corresponding dump file created.
 
 ---
 

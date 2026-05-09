@@ -13,9 +13,9 @@
 
 ## Purpose
 
-Detects Kerberos service ticket requests using RC4 encryption (ticket_encryption_type 0x17). Legitimate modern environments use AES-256 (etype 0x12) or AES-128 (etype 0x11). An RC4 TGS request for a service account SPN is the primary signal of Kerberoasting.
+This rule detects Kerberos service ticket requests in which the client specifies RC4 encryption (TicketEncryptionType 0x17). In environments where AES-128 (0x11) or AES-256 (0x12) is the domain standard, an RC4 TGS request targeting a user account SPN is the primary indicator of Kerberoasting — an offline hash cracking technique that exploits the ability to request a service ticket encrypted with the target account's password-derived key.
 
-This rule fired on the Kerberoasting attack executed in Phase 5 using `impacket-GetUserSPNs` with h.temp credentials against svc-sql-report.
+The rule was validated against Phase 5 of this project, during which `impacket-GetUserSPNs` was used with h.temp credentials to request a TGS for svc-sql-report over the soc.local domain.
 
 ---
 
@@ -32,19 +32,11 @@ not winlog.event_data.ServiceName: "krbtgt"
 
 ## Rule Logic
 
-Event 4769 is generated on the domain controller when a Kerberos service ticket (TGS) is requested. The critical fields are:
+Event 4769 is generated on the domain controller each time a Kerberos service ticket (TGS) is issued. Three filter conditions define the detection boundary. First, `TicketEncryptionType: 0x17` identifies RC4-HMAC encryption — the algorithm selected by Kerberoasting tools when the account's `msDS-SupportedEncryptionTypes` attribute permits it. Second, exclusion of `ServiceName` values ending in `$` removes machine account ticket requests, which are routine and voluminous. Third, exclusion of the `krbtgt` service name removes TGT renewal traffic.
 
-- `TicketEncryptionType: 0x17` — RC4-HMAC encryption. Modern Kerberos uses AES. An RC4 request targeting a user account SPN is a strong Kerberoasting indicator.
-- `ServiceName` must not end in `$` — machine account tickets are excluded.
-- `ServiceName` must not be `krbtgt` — TGT renewal is excluded.
+A note on field naming: Winlogbeat-forwarded events surface the encryption type under `winlog.event_data.TicketEncryptionType`. ECS-normalized events may present the same value as `winlog.event_data.ticket_encryption_type`. The field name should be confirmed in Kibana Discover against live data before the rule is deployed.
 
-**Field name note:** In Winlogbeat-shipped events, the encryption type appears under `winlog.event_data.TicketEncryptionType`. In ECS-normalized events it may appear under `winlog.event_data.ticket_encryption_type`. Verify the field name in Kibana Discover before deploying.
-
----
-
-## Why This Fires on Kerberoasting
-
-When `impacket-GetUserSPNs` (or Rubeus) requests a TGS for a service account, it can request RC4 encryption regardless of what the KDC prefers — unless RC4 is explicitly disabled on the account (`msDS-SupportedEncryptionTypes` set to AES only). In Phase 5, svc-sql-report allowed RC4, so the hash request used type 0x17. After hardening in Phase 10, this request would fail.
+When `impacket-GetUserSPNs` or Rubeus requests a TGS, the client specifies the desired encryption type in the request. The KDC honors RC4 unless the account's `msDS-SupportedEncryptionTypes` attribute explicitly excludes it. In Phase 5 of this project, svc-sql-report permitted RC4, and all captured hashes carried etype 0x17. Following AES enforcement in Phase 10, the KDC rejects RC4 requests for that account, rendering the hash capture step ineffective.
 
 ---
 
