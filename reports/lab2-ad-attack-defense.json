@@ -1,0 +1,178 @@
+{
+	"name": "Lab 2 — Active Directory Attack & Defense",
+	"versions": {
+		"attack": "19",
+		"navigator": "5.3.2",
+		"layer": "4.5"
+	},
+	"domain": "enterprise-attack",
+	"description": "CyberConstruct SOC Lab — soc.local AD attack chain simulation. Techniques executed, detected in ELK SIEM, and hardened. Analyst: John Medina.",
+	"filters": {
+		"platforms": [
+			"Windows"
+		]
+	},
+	"sorting": 0,
+	"layout": {
+		"layout": "side",
+		"aggregateFunction": "average",
+		"showID": true,
+		"showName": true,
+		"showAggregateScores": false,
+		"countUnscored": false,
+		"expandedSubtechniques": "annotated"
+	},
+	"hideDisabled": false,
+	"techniques": [
+		{
+			"techniqueID": "T1087",
+			"tactic": "discovery",
+			"color": "",
+			"comment": "",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": true
+		},
+		{
+			"techniqueID": "T1087.002",
+			"tactic": "discovery",
+			"color": "#e60d0d",
+			"comment": "EXECUTED & DETECTED — BloodHound/SharpHound LDAP enumeration of soc.local. Collected 315 objects. Detected via LDAP query burst (Event 1644). Hardened: DS Access auditing enabled.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1558",
+			"tactic": "credential-access",
+			"color": "",
+			"comment": "",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": true
+		},
+		{
+			"techniqueID": "T1558.003",
+			"tactic": "credential-access",
+			"color": "#e60d0d",
+			"comment": "EXECUTED & DETECTED — Kerberoasted svc-sql-report (SPN: MSSQLSvc/win-dc01.soc.local:1433) using Impacket GetUserSPNs. RC4 hash captured. Detected via Event 4769 etype 0x17 (237 events in ELK). Hardened: RC4 disabled, AES128+AES256 enforced on svc-sql-report.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1558.004",
+			"tactic": "credential-access",
+			"color": "#e60d0d",
+			"comment": "EXECUTED & DETECTED — AS-REP Roasted svc-backup-ops (DoesNotRequirePreAuth=True) using Impacket GetNPUsers. AS-REP hash captured. Detected via Event 4768 no pre-auth (98 events in ELK). Hardened: Kerberos pre-authentication re-enabled on svc-backup-ops.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1558.001",
+			"tactic": "credential-access",
+			"color": "#ff9900",
+			"comment": "NOT EXECUTED — Detection gap identified. Primary detection signal: Event 4769 with anomalous TGS ticket lifetime. Recommendation: rotate krbtgt password twice, deploy MDI for behavioral Golden Ticket detection.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1003",
+			"tactic": "credential-access",
+			"color": "",
+			"comment": "",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": true
+		},
+		{
+			"techniqueID": "T1003.001",
+			"tactic": "credential-access",
+			"color": "#0070c0",
+			"comment": "ATTEMPTED & BLOCKED — LSASS dump attempted via Mimikatz/ProcDump from WIN10-ADCLIENT. Blocked by Windows Defender Protected Process Light (PPL). Sysmon Event 10 generated and detected in ELK. Documented as defensive control validation.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1003.006",
+			"tactic": "credential-access",
+			"color": "#e60d0d",
+			"comment": "EXECUTED & DETECTED — DCSync executed from Kali-Attacker using Impacket secretsdump. NTLM hashes replicated from WIN-DC01 including krbtgt. Detected via Event 4662 DS-Replication-Get-Changes GUIDs (103 events in ELK). Hardened: DS Access auditing + Protected Users group for privileged accounts.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1021",
+			"tactic": "lateral-movement",
+			"color": "",
+			"comment": "",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": true
+		},
+		{
+			"techniqueID": "T1021.002",
+			"tactic": "lateral-movement",
+			"color": "#ff9900",
+			"comment": "RESIDUAL RISK — svc-sql-report retains SQLAdmin privileges on WIN-DC01. Post-hardening BloodHound path: svc-sql-report → SQLAdmin → WIN-DC01 → HasSession → r.hayes → Domain Admins. Recommendation: remove SQLAdmin rights from service account (least privilege).",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		},
+		{
+			"techniqueID": "T1550.002",
+			"tactic": "lateral-movement",
+			"color": "#e60d0d",
+			"comment": "DETECTED — Pass-the-Hash lateral movement detected via Event 4624 LogonType 3 with NTLM authentication. Detection rule validated in ELK.",
+			"enabled": true,
+			"metadata": [],
+			"links": [],
+			"showSubtechniques": false
+		}
+	],
+	"gradient": {
+		"colors": [
+			"#ff6666ff",
+			"#ffe766ff",
+			"#8ec843ff"
+		],
+		"minValue": 0,
+		"maxValue": 100
+	},
+	"legendItems": [
+		{
+			"label": "Executed & Detected",
+			"color": "#e60d0d"
+		},
+		{
+			"label": "Attempted & Blocked",
+			"color": "#0070c0"
+		},
+		{
+			"label": "Residual Risk / Detection Gap",
+			"color": "#ff9900"
+		}
+	],
+	"metadata": [],
+	"links": [],
+	"showTacticRowBackground": true,
+	"tacticRowBackground": "#1a1a2e",
+	"selectTechniquesAcrossTactics": true,
+	"selectSubtechniquesWithParent": false,
+	"selectVisibleTechniques": false
+}
